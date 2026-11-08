@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Chienfluence</title>
+  <meta name="description" content="Film a whole class in short clips, hands-free. Pick your favorites and save them or join them into one video.">
+  <meta name="theme-color" content="#fff6f2">
+  <meta name="color-scheme" content="light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Chienfluence">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <!-- ============ HOME / SETUP ============ -->
+  <main id="home" class="screen">
+    <header class="brand">
+      <svg class="bow" viewBox="0 0 64 40" aria-hidden="true"><use href="#i-bow"/></svg>
+      <h1>chienfluence</h1>
+      <p class="tag">film your class, hands-free <span aria-hidden="true">♡</span></p>
+    </header>
+
+    <div id="install-tip" class="tip" hidden>
+      <span>Add me to your Home Screen: tap <b>Share</b> <svg class="ico-inline" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-share"/></svg> then <b>Add to Home Screen</b></span>
+      <button class="x" aria-label="Hide tip">×</button>
+    </div>
+
+    <section class="card">
+      <p class="label">Quick start</p>
+      <div id="presets" class="chips" role="radiogroup" aria-label="Presets"></div>
+
+      <div class="steppers">
+        <div class="stepper" data-key="clip">
+          <span class="s-label">Film for</span>
+          <button class="round" data-dir="-1" aria-label="Shorter clips">−</button>
+          <output class="s-value"></output>
+          <button class="round" data-dir="1" aria-label="Longer clips">+</button>
+        </div>
+        <div class="stepper" data-key="brk">
+          <span class="s-label">Break</span>
+          <button class="round" data-dir="-1" aria-label="Shorter breaks">−</button>
+          <output class="s-value"></output>
+          <button class="round" data-dir="1" aria-label="Longer breaks">+</button>
+        </div>
+        <div class="stepper" data-key="count">
+          <span class="s-label">Clips</span>
+          <button class="round" data-dir="-1" aria-label="Fewer clips">−</button>
+          <output class="s-value"></output>
+          <button class="round" data-dir="1" aria-label="More clips">+</button>
+        </div>
+      </div>
+
+      <p id="summary" class="summary"></p>
+    </section>
+
+    <section class="card options">
+      <div class="opt">
+        <span>Camera</span>
+        <div class="seg" id="opt-facing" role="radiogroup" aria-label="Camera">
+          <button data-v="environment" role="radio">Back</button>
+          <button data-v="user" role="radio">Selfie</button>
+        </div>
+      </div>
+      <div class="opt">
+        <span>Start after</span>
+        <div class="seg" id="opt-delay" role="radiogroup" aria-label="Start after">
+          <button data-v="5" role="radio">5s</button>
+          <button data-v="10" role="radio">10s</button>
+          <button data-v="30" role="radio">30s</button>
+        </div>
+      </div>
+      <label class="opt switch">
+        <span>Record sound</span>
+        <input type="checkbox" id="opt-sound"><i></i>
+      </label>
+      <label class="opt switch">
+        <span>Soft chime before each clip</span>
+        <input type="checkbox" id="opt-chime"><i></i>
+      </label>
+    </section>
+
+    <button id="start" class="btn primary big">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cam"/></svg>
+      Start filming
+    </button>
+
+    <section id="past" hidden>
+      <h2>Your sessions</h2>
+      <ul id="sessions"></ul>
+    </section>
+  </main>
+
+  <!-- ============ SHOOTING ============ -->
+  <section id="shoot" class="screen" hidden>
+    <video id="cam" playsinline muted autoplay></video>
+    <div class="shade"></div>
+
+    <div class="hud-top">
+      <span id="pill-count" class="pill"></span>
+      <span id="pill-rec" class="pill rec" hidden><i></i><span id="rec-time">0:00</span></span>
+      <button id="flip" class="pill icon" aria-label="Switch camera"><svg viewBox="0 0 24 24"><use href="#i-flip"/></svg></button>
+    </div>
+
+    <div id="center" class="center">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="54" class="ring-bg"/>
+          <circle cx="60" cy="60" r="54" class="ring-fg" id="ring-fg"/>
+        </svg>
+        <div class="ring-text">
+          <span id="big" class="big-num"></span>
+          <span id="small" class="small-txt"></span>
+        </div>
+      </div>
+      <p id="status" class="status"></p>
+    </div>
+
+    <p id="awake-tip" class="awake-tip" hidden>Tip: set <b>Auto-Lock</b> to <b>Never</b> in Settings so your screen stays on</p>
+
+    <div class="hud-bottom">
+      <button id="skip" class="btn glass" hidden>Film now</button>
+      <button id="stop" class="btn glass">Done</button>
+    </div>
+  </section>
+
+  <!-- ============ REVIEW ============ -->
+  <section id="review" class="screen" hidden>
+    <header class="bar">
+      <button id="back" class="round ghost" aria-label="Back"><svg viewBox="0 0 24 24"><use href="#i-back"/></svg></button>
+      <div class="bar-title">
+        <h2>Your clips</h2>
+        <p id="review-sub"></p>
+      </div>
+      <button id="select-all" class="link">Select all</button>
+    </header>
+    <p class="hint">Tap a clip to watch it. Tap <span class="mini-heart">♡</span> to pick it.</p>
+    <ul id="grid" class="grid"></ul>
+
+    <footer class="actions" id="actions"></footer>
+  </section>
+
+  <!-- ============ CLIP PLAYER ============ -->
+  <dialog id="player" class="modal">
+    <div class="player-box">
+      <video id="player-video" playsinline controls loop></video>
+      <div class="player-actions">
+        <button id="p-pick" class="btn soft"><span class="h">♡</span> Pick</button>
+        <button id="p-save" class="btn soft">Save</button>
+        <button id="p-del" class="btn soft danger">Delete</button>
+      </div>
+      <button id="p-close" class="round close" aria-label="Close">×</button>
+    </div>
+  </dialog>
+
+  <!-- ============ SHEET (confirm, join result, errors) ============ -->
+  <dialog id="sheet" class="modal sheet">
+    <div class="sheet-box" id="sheet-box"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- icons -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-bow" viewBox="0 0 64 40">
+      <path d="M32 20C24 8 8 2 5 9c-3 7 5 18 27 11z" fill="#f7b6c4"/>
+      <path d="M32 20c8-12 24-18 27-11 3 7-5 18-27 11z" fill="#f7b6c4"/>
+      <path d="M30 21l-9 16 6-1 4 3 1-18zM34 21l9 16-6-1-4 3-1-18z" fill="#ef9db0"/>
+      <ellipse cx="32" cy="20" rx="5.5" ry="6" fill="#e9839b"/>
+      <path d="M11 11c4-2 11 1 16 6" stroke="#fff" stroke-opacity=".6" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24"><path fill="currentColor" d="M4 6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5v1.3l3.4-2.1A1 1 0 0 1 21 6.6v10.8a1 1 0 0 1-1.6.9L16 16.2v1.3a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 17.5z"/></symbol>
+    <symbol id="i-flip" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M8 7l4-4 4 4M6 11H5v9h14v-9h-1"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.9l10.5-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></symbol>
+  </svg>
+
+  <script type="module" src="app.js?v=1"></script>
+</body>
+</html>

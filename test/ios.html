@@ -1,0 +1,45 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chienfluence recorder test</title>
+<style>body{font:18px system-ui;padding:40px 20px} button{font-size:28px;padding:20px 40px} pre{white-space:pre-wrap}</style>
+<button id="go">Run test</button>
+<pre id="log"></pre>
+<script type="module">
+// Records 3 short clips on one stream (like the app does), joins them, and uploads everything to the test server.
+import { joinMp4 } from '../mp4join.js';
+const log = (s) => { document.querySelector('#log').textContent += s + '\n'; };
+const up = (name, blob) => fetch('/upload?name=' + name, { method: 'POST', body: blob });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+document.querySelector('#go').onclick = async () => {
+  try {
+    log(navigator.userAgent);
+    const c = document.createElement('canvas'); c.width = 720; c.height = 1280;
+    const g = c.getContext('2d'); let t = 0;
+    setInterval(() => { t++; g.fillStyle = `hsl(${(t * 3) % 360} 70% 80%)`; g.fillRect(0, 0, 720, 1280); g.fillStyle = '#c45'; g.font = '120px system-ui'; g.fillText(String(t), 200, 640); }, 33);
+    const stream = c.captureStream(30);
+    const ac = new AudioContext(); await ac.resume();
+    const osc = ac.createOscillator(); const dest = ac.createMediaStreamDestination();
+    osc.connect(dest); osc.start();
+    stream.addTrack(dest.stream.getAudioTracks()[0]);
+    const mime = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported(m));
+    log('mime: ' + mime);
+    const blobs = [];
+    for (let i = 0; i < 3; i++) {
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8e6 });
+      const chunks = [];
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const done = new Promise((r) => (rec.onstop = r));
+      rec.start(); await sleep(3000); rec.stop(); await done;
+      const b = new Blob(chunks, { type: rec.mimeType });
+      log(`clip ${i}: ${b.size} bytes, ${rec.mimeType}`);
+      blobs.push(b); await up(`safari-clip${i}.mp4`, b);
+      await sleep(1000);
+    }
+    const t0 = performance.now();
+    const j = await joinMp4(blobs);
+    log(`joined: ${j.size} bytes in ${(performance.now() - t0).toFixed(0)} ms`);
+    await up('safari-joined.mp4', j);
+    log('DONE');
+  } catch (e) { log('ERROR ' + e.message + '\n' + e.stack); }
+};
+</script>
