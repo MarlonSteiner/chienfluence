@@ -714,11 +714,12 @@ $('#actions').addEventListener('click', (e) => {
 
 // ---------- saving ----------
 
+// Returns 'shared' (share sheet finished), 'downloaded' (no share sheet, e.g. desktop) or false (cancelled).
 async function shareFiles(files) {
   if (navigator.canShare?.({ files })) {
     try {
       await navigator.share({ files });
-      return true;
+      return 'shared';
     } catch (e) {
       if (e.name === 'AbortError') return false;
       // fall through to downloading
@@ -731,12 +732,26 @@ async function shareFiles(files) {
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
   }
-  return true;
+  return 'downloaded';
+}
+
+// The "it's in your camera roll" confirmation after saving.
+function savedSheet(n, how, joined = false) {
+  const what = joined ? 'Your video is' : n === 1 ? 'Your clip is' : `${n} clips are`;
+  openSheet(`
+    <div class="saved-badge" aria-hidden="true">
+      <svg viewBox="0 0 48 48"><path d="M14 25l7 7 14-15"/></svg>
+    </div>
+    <h3>${how === 'downloaded' ? 'Downloaded ♡' : 'Saved to your camera roll ♡'}</h3>
+    <p>${how === 'downloaded' ? `${what} in your Downloads folder.` : `${what} in the Photos app, right at the top of Recents.`}</p>
+    <div class="row"><button class="btn primary" data-sheet="close">Yay, done</button></div>`);
+  setTimeout(() => heartBurst($('#sheet-box .saved-badge'), 10), 250);
 }
 
 async function saveClips(clips) {
   const files = clips.map((c) => new File([c.blob], clipName(c, R.clips.indexOf(c)), { type: c.blob.type || 'video/mp4' }));
-  if (await shareFiles(files)) toast(files.length === 1 ? 'Saved ♡' : `${files.length} clips ready ♡`);
+  const how = await shareFiles(files);
+  if (how) savedSheet(files.length, how);
 }
 
 // ---------- joining ----------
@@ -769,7 +784,7 @@ async function joinClips(clips) {
       <button class="btn ghost-btn" data-sheet="close">Close</button>
       <button class="btn primary" data-sheet="save">Save video</button>
     </div>`, {
-    save: async () => { if (await shareFiles([file])) toast('Saved ♡'); },
+    save: async () => { const how = await shareFiles([file]); if (how) savedSheet(1, how, true); },
     onClose: () => URL.revokeObjectURL(url),
   });
 }
