@@ -12,13 +12,14 @@ const STEPS = {
   brk: [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 420, 600],
   count: Array.from({ length: 60 }, (_, i) => i + 1),
 };
-const PRESETS = [
-  { name: '🩰 Pilates class', clip: 20, brk: 120, count: 20 },
-  { name: '💪 Workout', clip: 15, brk: 60, count: 20 },
-  { name: '💄 Get ready', clip: 30, brk: 60, count: 10 },
-  { name: '✨ Quick story', clip: 10, brk: 20, count: 6 },
+const BUILT_IN = [
+  { id: 'pilates', emoji: '🩰', name: 'Pilates class', clip: 20, brk: 120, count: 20 },
+  { id: 'workout', emoji: '💪', name: 'Workout', clip: 15, brk: 60, count: 20 },
+  { id: 'grwm', emoji: '💄', name: 'Get ready', clip: 30, brk: 60, count: 10 },
+  { id: 'quick', emoji: '✨', name: 'Quick story', clip: 10, brk: 20, count: 6 },
 ];
-const DEFAULTS = { clip: 20, brk: 120, count: 20, facing: 'environment', delay: 10, sound: true, chime: false };
+const EMOJIS = ['🎀', '🧘‍♀️', '🩰', '💪', '🏃‍♀️', '🚴‍♀️', '💃', '💄', '👗', '🍳', '☕️', '🛍️', '🌸', '🐶', '✈️', '✨'];
+const DEFAULTS = { clip: 20, brk: 120, count: 20, preset: 'pilates', facing: 'environment', delay: 10, sound: true, chime: false };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('cf.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
@@ -26,6 +27,15 @@ const store = {
 };
 const cfg = { ...DEFAULTS, ...store.get('settings', {}) };
 const saveCfg = () => store.set('settings', cfg);
+let customPresets = store.get('presets', []);
+const allPresets = () => [...BUILT_IN, ...customPresets];
+const isCustom = (p) => !BUILT_IN.includes(p);
+const matches = (p) => p && p.clip === cfg.clip && p.brk === cfg.brk && p.count === cfg.count;
+function activePreset() {
+  const p = allPresets().find((x) => x.id === cfg.preset);
+  return matches(p) ? p : null;
+}
+if (!('preset' in store.get('settings', {}))) cfg.preset = allPresets().find(matches)?.id ?? null; // older saved settings
 
 // ================= formatting =================
 
@@ -48,6 +58,56 @@ function fmtDate(t) {
   return new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Replays a one-shot animation class (a-pop, a-up, a-down, a-nope, a-enter, a-count) on an element.
+function bump(el, name) {
+  if (!el) return;
+  const cls = 'a-' + name;
+  el.classList.remove(cls);
+  void el.offsetWidth; // restart the animation
+  el.classList.add(cls);
+  el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+}
+
+// A tiny tap you can feel. iPhones (iOS 18+) tick when a switch input toggles; Android can vibrate.
+function haptic() {
+  try {
+    if (navigator.vibrate) { if (navigator.userActivation?.isActive !== false) navigator.vibrate(8); return; }
+    const label = document.createElement('label');
+    label.ariaHidden = 'true';
+    label.style.display = 'none';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.setAttribute('switch', '');
+    label.append(input);
+    document.head.append(label);
+    label.click();
+    label.remove();
+  } catch { /* no haptics, no problem */ }
+}
+
+// Little hearts flying out of an element.
+function heartBurst(el, n = 7) {
+  if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = el.getBoundingClientRect();
+  for (let i = 0; i < n; i++) {
+    const h = document.createElement('span');
+    h.className = 'burst';
+    h.textContent = '♥';
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+    const d = 28 + Math.random() * 18;
+    h.style.left = r.left + r.width / 2 + 'px';
+    h.style.top = r.top + r.height / 2 + 'px';
+    h.style.setProperty('--dx', Math.cos(a) * d + 'px');
+    h.style.setProperty('--dy', Math.sin(a) * d + 'px');
+    h.style.fontSize = 10 + Math.random() * 7 + 'px';
+    document.body.append(h);
+    setTimeout(() => h.remove(), 800);
+  }
+}
+
 let toastTimer;
 function toast(msg) {
   const t = $('#toast');
@@ -60,23 +120,56 @@ function toast(msg) {
 function show(id) {
   for (const s of $$('.screen')) s.hidden = s.id !== id;
   window.scrollTo(0, 0);
+  bump($('#' + id), 'enter');
+  if (id === 'home') renderSetup(); // segmented controls need a visible layout to place their pill
 }
 
 // ================= home / setup =================
 
+function stepFrom(k, value, dir) {
+  const list = STEPS[k];
+  let i = list.indexOf(value);
+  if (i < 0) i = Math.max(0, list.findIndex((v) => v >= value));
+  return list[Math.min(list.length - 1, Math.max(0, i + dir))];
+}
+
+function paintStepper(st, value) {
+  const k = st.dataset.key, list = STEPS[k], i = list.indexOf(value);
+  $('.s-value', st).textContent = k === 'count' ? value : fmtLen(value);
+  $('[data-dir="-1"]', st).disabled = i === 0;
+  $('[data-dir="1"]', st).disabled = i === list.length - 1;
+}
+
+// A stepper tap: returns the new value, animating the number (or a little "nope" wiggle at the end of the range).
+function stepTap(st, value, dir) {
+  const next = stepFrom(st.dataset.key, value, dir);
+  if (next === value) { bump(st, 'nope'); return value; }
+  paintStepper(st, next);
+  bump($('.s-value', st), dir > 0 ? 'up' : 'down');
+  haptic();
+  return next;
+}
+
+function renderChips() {
+  const on = activePreset();
+  $('#presets').innerHTML = allPresets().map((p) => `
+    <button class="chip${isCustom(p) ? ' custom' : ''}" role="radio" aria-checked="${p === on}" data-id="${esc(p.id)}">
+      ${p.emoji} ${esc(p.name)}${p === on && isCustom(p) ? '<span class="edit" aria-label="edit">✎</span>' : ''}
+    </button>`).join('') + '<button class="chip new" data-new aria-label="New preset"><b>+</b> New</button>';
+}
+
+function placeSegs() {
+  for (const seg of $$('.seg')) {
+    const b = $('[aria-checked="true"]', seg);
+    if (!b || !b.offsetWidth) continue;
+    seg.style.setProperty('--x', b.offsetLeft + 'px');
+    seg.style.setProperty('--w', b.offsetWidth + 'px');
+  }
+}
+
 function renderSetup() {
-  for (const st of $$('.stepper')) {
-    const k = st.dataset.key;
-    const list = STEPS[k];
-    const i = list.indexOf(cfg[k]);
-    $('.s-value', st).textContent = k === 'count' ? cfg[k] : fmtLen(cfg[k]);
-    $('[data-dir="-1"]', st).disabled = i <= 0;
-    $('[data-dir="1"]', st).disabled = i >= list.length - 1;
-  }
-  for (const c of $$('.chip')) {
-    const p = PRESETS[c.dataset.i];
-    c.setAttribute('aria-checked', p.clip === cfg.clip && p.brk === cfg.brk && p.count === cfg.count);
-  }
+  for (const st of $$('#home .stepper')) paintStepper(st, cfg[st.dataset.key]);
+  renderChips();
   const total = cfg.count * cfg.clip + (cfg.count - 1) * cfg.brk;
   const footage = cfg.count * cfg.clip;
   $('#summary').innerHTML = cfg.count === 1
@@ -87,26 +180,93 @@ function renderSetup() {
   }
   $('#opt-sound').checked = cfg.sound;
   $('#opt-chime').checked = cfg.chime;
+  placeSegs();
+}
+
+// ---------- custom presets ----------
+
+function presetSheet(existing) {
+  const draft = existing ? { ...existing } : { id: 'c' + Date.now().toString(36), emoji: '🎀', name: '', clip: cfg.clip, brk: cfg.brk, count: cfg.count };
+  const stepper = (k, label) => `
+    <div class="stepper" data-key="${k}">
+      <span class="s-label">${label}</span>
+      <button class="round" data-dir="-1" aria-label="Less">−</button>
+      <output class="s-value"></output>
+      <button class="round" data-dir="1" aria-label="More">+</button>
+    </div>`;
+  openSheet(`
+    <h3>${existing ? 'Edit preset' : 'New preset ✨'}</h3>
+    <div class="emoji-pick" role="radiogroup" aria-label="Icon">
+      ${EMOJIS.map((e) => `<button role="radio" data-emoji="${e}" aria-checked="${e === draft.emoji}">${e}</button>`).join('')}
+    </div>
+    <input id="preset-name" class="field" maxlength="22" placeholder="Name it, like Yoga flow" value="${esc(draft.name)}" autocomplete="off" enterkeyhint="done">
+    <div class="steppers">${stepper('clip', 'Film for')}${stepper('brk', 'Break')}${stepper('count', 'Clips')}</div>
+    <div class="row">
+      ${existing ? '<button class="btn ghost-btn danger" data-sheet="remove">Delete</button>' : '<button class="btn ghost-btn" data-sheet="close">Cancel</button>'}
+      <button class="btn primary" data-sheet="save">Save</button>
+    </div>`, {
+    onClick(e) {
+      const em = e.target.closest('[data-emoji]');
+      if (em) {
+        draft.emoji = em.dataset.emoji;
+        for (const b of $$('[data-emoji]', $('#sheet-box'))) b.setAttribute('aria-checked', b === em);
+        bump(em, 'pop'); haptic();
+        return;
+      }
+      const d = e.target.closest('[data-dir]');
+      if (d) { const st = d.closest('.stepper'); draft[st.dataset.key] = stepTap(st, draft[st.dataset.key], Number(d.dataset.dir)); }
+    },
+    save() {
+      draft.name = $('#preset-name').value.trim() || 'My preset';
+      customPresets = existing ? customPresets.map((p) => (p.id === draft.id ? draft : p)) : [...customPresets, draft];
+      store.set('presets', customPresets);
+      Object.assign(cfg, { clip: draft.clip, brk: draft.brk, count: draft.count, preset: draft.id });
+      saveCfg(); closeSheet(); renderSetup();
+      const chip = $(`.chip[data-id="${draft.id}"]`);
+      chip?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      bump(chip, 'pop'); heartBurst(chip, 6); haptic();
+      toast(existing ? 'Preset updated ♡' : 'Preset saved ♡');
+    },
+    remove() {
+      openSheet(`
+        <div class="emoji">${draft.emoji}</div>
+        <h3>Delete “${esc(existing.name)}”?</h3>
+        <p>Your filmed clips stay, only the preset goes.</p>
+        <div class="row">
+          <button class="btn ghost-btn" data-sheet="close">Keep</button>
+          <button class="btn primary" data-sheet="yes">Delete</button>
+        </div>`, {
+        yes() {
+          customPresets = customPresets.filter((p) => p.id !== draft.id);
+          store.set('presets', customPresets);
+          closeSheet(); renderSetup(); toast('Preset deleted');
+        },
+      });
+    },
+  });
+  for (const st of $$('#sheet-box .stepper')) paintStepper(st, draft[st.dataset.key]);
 }
 
 function setupHome() {
-  $('#presets').innerHTML = PRESETS.map((p, i) => `<button class="chip" role="radio" data-i="${i}">${p.name}</button>`).join('');
   $('#presets').addEventListener('click', (e) => {
     const c = e.target.closest('.chip');
     if (!c) return;
-    const p = PRESETS[c.dataset.i];
-    Object.assign(cfg, { clip: p.clip, brk: p.brk, count: p.count });
-    saveCfg(); renderSetup();
+    if (c.hasAttribute('data-new')) { haptic(); return presetSheet(); }
+    const p = allPresets().find((x) => x.id === c.dataset.id);
+    if (!p) return;
+    if (p === activePreset() && isCustom(p)) return presetSheet(p); // tap a picked custom preset to edit it
+    const changed = ['clip', 'brk', 'count'].filter((k) => cfg[k] !== p[k]);
+    Object.assign(cfg, { clip: p.clip, brk: p.brk, count: p.count, preset: p.id });
+    saveCfg(); renderSetup(); haptic();
+    bump($(`.chip[data-id="${p.id}"]`), 'pop');
+    for (const k of changed) bump($(`#home .stepper[data-key="${k}"] .s-value`), 'pop');
   });
-  for (const st of $$('.stepper')) {
+  for (const st of $$('#home .stepper')) {
     st.addEventListener('click', (e) => {
       const b = e.target.closest('[data-dir]');
       if (!b) return;
-      const k = st.dataset.key, list = STEPS[k];
-      let i = list.indexOf(cfg[k]);
-      if (i < 0) i = list.findIndex((v) => v >= cfg[k]);
-      i = Math.min(list.length - 1, Math.max(0, i + Number(b.dataset.dir)));
-      cfg[k] = list[i];
+      const k = st.dataset.key;
+      cfg[k] = stepTap(st, cfg[k], Number(b.dataset.dir));
       saveCfg(); renderSetup();
     });
   }
@@ -115,12 +275,14 @@ function setupHome() {
       const b = e.target.closest('button');
       if (!b) return;
       cfg[key] = num ? Number(b.dataset.v) : b.dataset.v;
-      saveCfg(); renderSetup();
+      saveCfg(); renderSetup(); haptic();
     });
   }
   $('#opt-sound').addEventListener('change', (e) => { cfg.sound = e.target.checked; saveCfg(); });
-  $('#opt-chime').addEventListener('change', (e) => { cfg.chime = e.target.checked; saveCfg(); });
-  $('#start').addEventListener('click', startSession);
+  $('#opt-chime').addEventListener('change', (e) => { cfg.chime = e.target.checked; saveCfg(); if (cfg.chime) { ensureAudio(); chime(); } });
+  $('#start').addEventListener('click', () => { heartBurst($('#start'), 9); haptic(); startSession(); });
+  document.fonts?.ready.then(placeSegs);
+  addEventListener('resize', placeSegs);
 
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
@@ -242,6 +404,10 @@ function releaseAwake() { wakeLock?.release().catch(() => {}); wakeLock = null; 
 // ================= chime =================
 
 let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new AudioContext(); } catch { /* fine without */ } }
+  audioCtx?.resume?.();
+}
 function chime() {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
@@ -263,7 +429,7 @@ let S = null; // the running session
 async function startSession() {
   const mime = pickMime();
   if (mime === null) return sheetMessage('😿', 'Recording isn\'t supported here', 'Open Chienfluence in Safari on your iPhone.');
-  if (cfg.chime && !audioCtx) { try { audioCtx = new AudioContext(); audioCtx.resume(); } catch { /* fine without */ } }
+  if (cfg.chime) ensureAudio();
 
   $('#start').disabled = true;
   try {
@@ -310,6 +476,7 @@ function setPhase(phase, seconds) {
   $('#skip').hidden = phase === 'rec';
   $('#skip').textContent = phase === 'countdown' ? 'Start now' : 'Film now';
   $('#flip').hidden = phase === 'rec';
+  $('#stop').textContent = phase === 'countdown' && S.done === 0 ? 'Cancel' : 'Done';
 }
 
 function tick() {
@@ -331,7 +498,8 @@ function tick() {
   const frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
   $('#ring-fg').style.strokeDashoffset = String(339.3 * (1 - frac));
   if (left <= 3.05) {
-    $('#big').textContent = Math.max(1, Math.ceil(left));
+    const num = String(Math.max(1, Math.ceil(left)));
+    if ($('#big').textContent !== num) { $('#big').textContent = num; bump($('#big'), 'count'); }
     $('#small').textContent = '';
     $('#status').textContent = 'Filming in…';
   } else {
@@ -430,11 +598,12 @@ async function reopenCamera() {
 
 $('#stop').addEventListener('click', () => {
   if (!S) return;
-  if (S.done === 0 && S.phase !== 'rec') {
+  if (S.done === 0 && S.phase !== 'rec') { // nothing filmed yet: cancel
     clearInterval(S.timer);
     db.deleteSession(S.id).catch(() => {});
     S = null; closeCamera(); releaseAwake();
     show('home'); renderSessions();
+    toast('Cancelled, nothing was filmed');
     return;
   }
   finishSession();
@@ -473,6 +642,8 @@ async function openReview(sessionId) {
   R = { session, clips, selected: new Set() };
   show('review');
   renderReview();
+  $('#grid').classList.add('stagger');
+  setTimeout(() => $('#grid').classList.remove('stagger'), 1200);
 }
 
 function clipName(c, i) {
@@ -488,7 +659,7 @@ function renderReview() {
   $('#review-sub').textContent = `${clips.length} clip${clips.length === 1 ? '' : 's'} · ${fmtClock(total, Math.round)} · ${fmtDate(R.session?.createdAt || clips[0].createdAt)}`;
   $('#select-all').textContent = selected.size === clips.length ? 'Clear' : 'Select all';
   $('#grid').innerHTML = clips.map((c, i) => `
-    <li class="tile${selected.has(c.id) ? ' on' : ''}" data-id="${c.id}">
+    <li class="tile${selected.has(c.id) ? ' on' : ''}" data-id="${c.id}" style="--i:${i}">
       <button class="open" aria-label="Watch clip ${i + 1}">
         ${c.thumb ? `<img src="${urlFor(c.thumb)}" alt="">` : ''}
         <span class="play"><svg viewBox="0 0 24 24"><use href="#i-play"/></svg></span>
@@ -518,14 +689,20 @@ $('#grid').addEventListener('click', (e) => {
   if (!tile) return;
   const id = tile.dataset.id;
   if (e.target.closest('.pick')) {
-    R.selected.has(id) ? R.selected.delete(id) : R.selected.add(id);
+    const on = !R.selected.has(id);
+    on ? R.selected.add(id) : R.selected.delete(id);
     renderReview();
+    const pick = $(`.tile[data-id="${id}"] .pick span`);
+    bump(pick, 'pop'); haptic();
+    if (on) heartBurst(pick);
+    bump($('#actions'), 'rise');
   } else openPlayer(id);
 });
 $('#select-all').addEventListener('click', () => {
-  if (R.selected.size === R.clips.length) R.selected.clear();
-  else R.clips.forEach((c) => R.selected.add(c.id));
-  renderReview();
+  const all = R.selected.size !== R.clips.length;
+  if (all) R.clips.forEach((c) => R.selected.add(c.id)); else R.selected.clear();
+  renderReview(); haptic();
+  $$('.pick span').forEach((p, i) => setTimeout(() => bump(p, 'pop'), i * 35));
 });
 $('#back').addEventListener('click', () => { R = null; show('home'); renderSessions(); });
 $('#actions').addEventListener('click', (e) => {
@@ -619,7 +796,8 @@ function confirmDelete(clips) {
 
 async function deleteClips(clips) {
   const ids = new Set(clips.map((c) => c.id));
-  await Promise.all(clips.map((c) => db.deleteClip(c.id).catch(() => {})));
+  for (const id of ids) $(`.tile[data-id="${id}"]`)?.classList.add('out');
+  await Promise.all([sleep(320), ...clips.map((c) => db.deleteClip(c.id).catch(() => {}))]);
   R.clips = R.clips.filter((c) => !ids.has(c.id));
   for (const id of ids) R.selected.delete(id);
   const s = R.session;
@@ -667,8 +845,11 @@ $('#player').addEventListener('close', () => {
 $('#p-close').addEventListener('click', () => $('#player').close());
 $('#player').addEventListener('click', (e) => { if (e.target === $('#player')) $('#player').close(); });
 $('#p-pick').addEventListener('click', () => {
-  R.selected.has(playing.id) ? R.selected.delete(playing.id) : R.selected.add(playing.id);
-  renderPlayerPick(); renderReview();
+  const on = !R.selected.has(playing.id);
+  on ? R.selected.add(playing.id) : R.selected.delete(playing.id);
+  renderPlayerPick(); renderReview(); haptic();
+  bump($('#p-pick'), 'pop');
+  if (on) heartBurst($('#p-pick .h'));
 });
 $('#p-save').addEventListener('click', () => saveClips([playing]));
 $('#p-del').addEventListener('click', () => confirmDelete([playing]));
@@ -690,6 +871,7 @@ function sheetMessage(emoji, title, text) {
 $('#sheet').addEventListener('close', () => { sheetHandlers.onClose?.(); sheetHandlers = {}; });
 $('#sheet').addEventListener('click', (e) => {
   if (e.target === $('#sheet')) return closeSheet();
+  sheetHandlers.onClick?.(e);
   const k = e.target.closest('[data-sheet]')?.dataset.sheet;
   if (!k) return;
   if (k === 'close') closeSheet();
@@ -698,6 +880,7 @@ $('#sheet').addEventListener('click', (e) => {
 
 // ================= start =================
 
+document.addEventListener('touchstart', () => {}, { passive: true });
 setupHome();
 renderSessions();
 
